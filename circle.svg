@@ -1,0 +1,540 @@
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" 
+         "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<!-- The explicit svg namespace is for XPath. -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:svg="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     xmlns:circle="http://www.piquan.org/circle-of-fifths"
+     id="svg"
+     version="1.1"
+     viewBox="-240 -160 480 320" preserveAspectRatio="xMidYMid">
+  <!-- Our working space is 480x320 (the same as the iPhone in landscape mode),
+       centered at the origin. -->
+
+  <title>Interactive Circle of Fifths</title>
+
+  <script type="text/ecmascript"><![CDATA[
+    function getId(id) {
+        console.log(id);
+        var rv = document.getElementById(id);
+	if (rv != null)
+	    return rv;
+        console.log("foo");
+	var result = document.evaluate('//*[@id="' + id + '"]',
+	                               document,
+	                               document.createNSResolver(document.documentElement),
+				       XPathResult.ANY_UNORDERED_NODE_TYPE);
+        console.log("bar");
+        return result;
+    }
+
+    // gensym: Generates a new ID using an incrementing counter.
+    var spinningId = 0;
+    function gensym() {
+        return "gSpin" + spinningId++;
+    }
+
+    // spin: Spins an element with id TARGET by ANGLE degrees.  Any
+    // text elements that don't have textPath elements within them are
+    // counterspun so that they stay upright.
+    var textEltsExpr = document.createExpression(".//svg:text[not(svg:textPath)]", document.createNSResolver(document.documentElement));
+    function spin(target, angle) {
+        // Create the main spin animation
+        var spinTmpl = document.getElementById("spinTemplate");
+        var newAnim = spinTmpl.cloneNode(false);
+        newAnim.setAttribute("values", "0;" + angle);
+        var id = gensym();
+        newAnim.setAttribute("id", id);
+        newAnim.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href",
+                               "#" + target);
+        spinTmpl.parentNode.appendChild(newAnim);
+
+        // Find any text nodes underneath it, and create new counterspin
+	// animations for them.
+        var textNodes = textEltsExpr.evaluate(document.getElementById(target),
+                                              XPathResult.UNORDERED_NODE_SNAPSHOT_TYPE);
+        var textAngle = -angle;
+        for (var tnn = textNodes.snapshotLength - 1; tnn >= 0; tnn--) {
+            var tn = textNodes.snapshotItem(tnn);
+            var newTxtAnim = spinTmpl.cloneNode(false);
+            var cxcy = " "+tn.getAttribute("x") +" "+ tn.getAttribute("y");
+            newTxtAnim.setAttribute("values", "0" + cxcy + ";" + textAngle + cxcy);
+            newTxtAnim.setAttribute("begin", id + ".begin");
+            if (!tn.hasAttribute("id"))
+                tn.setAttribute("id", gensym());
+            newTxtAnim.setAttributeNS("http://www.w3.org/1999/xlink",
+                                      "xlink:href",
+                                      "#" + tn.getAttribute("id"));
+            spinTmpl.parentNode.appendChild(newTxtAnim);
+        }
+
+	// Kick off the spin
+        newAnim.beginElement();
+    }
+
+    // spinToKey: Spin the main circle-of-fifths circle to a tonic
+    // that's at ANGLE degrees from the circle's current orientation.
+    function spinToKey(angle) {
+        spin("circle-text", angle);
+    }
+
+    // spinToMode: Spin the colored bands to account for a different mode.
+    // The ANGLE is how far the bands should spin from their original
+    // position (Ionian).  Note that while spinToKey takes a RELATIVE
+    // angle (from the circle's current orientation), this function takes
+    // an ABSOLUTE angle (from its default orientation).
+    var findRomansExpr = document.createExpression('//svg:tspan[@class="roman"]', document.createNSResolver(document.documentElement));
+    var romanStrs = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+    var lastModeAngle = 0;
+    function spinToMode(angle, romStartsAt) {
+        // spin takes a relative angle, but our ANGLE parameter starts at 0.
+        spin("bands", (angle - lastModeAngle));
+        lastModeAngle = angle;
+
+	// That part was easy enough.  However, now the chords are all
+	// mixed up; the I chord no longer refers to the tonic.  Rewrite
+	// the chord names to account for this.  Their form (major, minor,
+	// diminished) doesn't change.
+	//
+	// Each chord element has a circle:basevalue attribute (which is
+	// ignored by svg) that indicates what its number would be in the
+	// Ionian mode.  It also has a circle:downcase attribute that is "1"
+	// if the chord is minor.  The romStartsAt parameter to spinToMode
+	// tells us how far from the Ionian mode we are.
+	//
+        // Wait for 0.5s to make these changes, so that the spin is at
+        // roughly maximum velocity and the change is less likely to
+        // be distracting.
+        var x = window.setTimeout(function () {
+            var romans = findRomansExpr.evaluate(document, XPathResult.UNORDERED_NODE_SNAPSHOT_TYPE);
+            for (var rnn = romans.snapshotLength - 1; rnn >= 0; rnn--) {
+                var rn = romans.snapshotItem(rnn);
+                var baseValue = rn.getAttributeNS("http://www.piquan.org/circle-of-fifths", "basevalue");
+                var downcase = rn.getAttributeNS("http://www.piquan.org/circle-of-fifths", "downcase");
+                var newValue = baseValue - romStartsAt;
+                if (newValue < 0)
+                    newValue += 7;
+                var str = romanStrs[newValue];
+                if (downcase != "0")
+                    str = str.toLowerCase();
+                var rtn = rn.firstChild;
+                while (rtn.nodeType != rtn.TEXT_NODE)
+                    rtn = rtn.nextSibling;
+                rtn.replaceData(0, rtn.length, str);
+            }
+        }, 500);
+    }
+
+]]></script>
+
+  <style type="text/css"><![CDATA[
+    svg { font-family: "Lucida Grande"; font-size: 24px; }
+
+    /*
+     * Text positioning
+     */
+
+    /* We define our text position based on the centerpoint. */
+    text, textPath {
+        text-anchor: middle;
+        alignment-baseline: middle;
+    }
+
+    /* Baseline alignments to children: a very confusing part of the
+       SVG spec.  This should ideally be different; as it stands, a
+       font-size change in a tspan will cause the middles to be aligned.
+       Unfortunately, Safari currently doesn't seem to handle baselines
+       100% correctly, so if our alignment-baseline is "middle", this is
+       the only way to keep tspans aligned properly.  (The right thing is
+       what the SVG default is: dominant-baseline is auto (so, alphabetic
+       for Latin text), and alignment-baseline is auto (also alphabetic).
+       Safari seems to set the dominant-baseline to the text's
+       alignment-baseline. */
+    text { dominant-baseline: middle; }
+    tspan { alignment-baseline: middle; }
+
+    /*
+     * Text appearance (everything except colors)
+     */
+
+    .arc-text, .dot-text, .chord-text {
+        fill: white;
+        stroke: none;
+        stroke-width: 0.025em; /* In case stroke is overridden (cf .dot-text) */
+    }
+    .chord-text { font-weight: bold; }
+    .dot-text   { font-weight: normal; } /* You could try bold */
+
+    .circle-text { cursor: crosshair; }
+
+    .mode-text { font-size: 0.5em; cursor: crosshair; }
+    /* If font-size is increased, you may need to have the modes alternate
+     * heights.  In that case, turn these on.
+    .mode-0 { alignment-baseline: alphabetic; }
+    .mode-1 { alignment-baseline: hanging; }
+    */
+    .mode-sup { alignment-baseline: alphabetic; }
+    .mode-sub { alignment-baseline: hanging; }
+    .first-mode { text-anchor:start }
+    .last-mode { text-anchor:end }
+
+    /* The directions at the bottom are the only place where we need
+     * alphabetic baselines, since we're lining against the bottom. */
+    #directions { font-size: 0.75em; }
+    #directions, #directions text, #directions tspan {
+        dominant-baseline: alphabetic;
+	alignment-baseline: alphabetic;
+    }
+
+    /*
+    These changes may be nice to deal with Lucida Grande's lousy
+    rendering of the sharp and flat characters, but I don't like the
+    idea of second-guessing the font designer.  (I used to have
+    kerning:-1em, but it looks like Safari interpreted that as -1 user
+    units (pixels before scaling), rather than -1 em.)
+    .circle-text { kerning: -3; }
+    .sf { baseline-shift: super; font-size: 1ex; }
+    */
+
+    /*
+     * Band appearance
+     *
+     * The bands' widths are based on the font-size, so you can change
+     * both easily.  Note that these font sizes are BEFORE the band is
+     * scaled into its final position!
+     */
+    .arc {
+        fill: none;
+        stroke-linecap: round;
+    }
+    .narrow-band { font-size: 0.5em; }
+    .narrow-band .arc { stroke-width: 1.1em; }
+    .medium-band { font-size: 0.75em; }
+    .medium-band .arc { stroke-width: 1.2em; }
+    .wide-band { font-size: 0.75em; }
+    .wide-band .arc { stroke-width: 1.8em;  }
+
+    /*
+     * Colors
+     *
+     * Taken from http://colorschemedesigner.com/#3341Tw0w0l7l7
+     */
+    #major-pentatonic  { stroke: #ff9200; }
+    #minor-pentatonic  { stroke: #0b61a4; }
+    #minor-pentatonic .dot      { fill:   #0b61a4; }
+    #minor-pentatonic .dot-text { stroke: #064a73; }
+    #modes             { stroke:#d55623; }
+    .mode-directions   { fill: #d55623; }
+    .circle-background { stroke:#ddd; fill: none; }
+    #key-marker        { fill: #ffff00; }
+    .key-directions    { stroke-width: 0.3px; stroke: black; fill: #ffff00; }
+
+    /* The chord progressions use a translucent gradient to indicate
+     * the more-frequently used chords, so the color stuff is a bit more
+     * complex.  Both fill and stop-color are defined, so the color can
+     * be used to define a gradient, or render a shape (like the arrowhead).
+     * For some transparency, set the stop-opacities to 1, 0.83, 0.67, 0.5.
+     */
+    .chord-arc-dark    { fill: #00864d; stop-color: #00864d; stop-opacity:1; }
+    .chord-arc-meddark { fill: #18925e; stop-color: #18925e; stop-opacity:0.83; }
+    .chord-arc-medlght { fill: #21c981; stop-color: #21c981; stop-opacity:0.67; }
+    .chord-arc-light   { fill: #3cc98d; stop-color: #3cc98d; stop-opacity:0.5; }
+    #chord-progression-arc { stroke:url(#chord-gradient); }
+
+]]></style>
+
+  <!--
+      For easy reference, here's a precomputed sin/cos table of where
+      the notes go.  Since we make the bands by scaling a 100-unit
+      circle, this also can be used for points or text on them.
+
+      ;; Emacs Lisp:
+      (dotimes (x 12)
+        (let ((theta (/ (* 2 pi x) 12)))
+          (insert (format "%2i %10.5f %10.5f\n" x (* 100 (cos theta)) (* 100 (sin theta))))))
+
+       0  100.00000    0.00000  ;; A
+       1   86.60254   50.00000  ;; E
+       2   50.00000   86.60254  ;; B
+       3    0.00000  100.00000  ;; F#
+       4  -50.00000   86.60254  ;; C#
+       5  -86.60254   50.00000  ;; Ab
+       6 -100.00000    0.00000  ;; Eb
+       7  -86.60254  -50.00000  ;; Bb
+       8  -50.00000  -86.60254  ;; F
+       9   -0.00000 -100.00000  ;; C
+      10   50.00000  -86.60254  ;; G
+      11   86.60254  -50.00000  ;; D
+  -->
+
+  <!--
+      Boundary box for use while debugging:
+      <rect x="-240" y="-160" width="480" height="320"
+            stroke="black" fill="none"/>
+  -->
+
+  <g id="bands">
+
+    <!-- Major pentatonic -->
+    <!-- FIXME Is this meaningful for anything but Ionian?  Minor pentatonic
+	 is useful in a major key, so maybe. -->
+    <g transform="scale(1.27)" id="major-pentatonic" class="narrow-band">
+      <a xlink:href="http://en.wikipedia.org/wiki/Major_pentatonic_scale">
+	<path id="major-pentatonic-path" class="arc"
+              d="M0,-100 A100,100 0 0 1 86.6,50"/>
+        <text class="arc-text">
+	  <textPath xlink:href="#major-pentatonic-path"
+		    startOffset="50%" method="align" spacing="auto">
+            Major Pentatonic
+          </textPath>
+	</text>
+      </a>
+    </g>
+
+    <!-- Minor pentatonic -->
+    <g transform="scale(0.75)" id="minor-pentatonic" class="medium-band">
+      <a xlink:href="http://en.wikipedia.org/wiki/Minor_pentatonic_scale">
+        <path id="minor-pentatonic-path" class="arc"
+              d="M-100,0 A100,100 0 0 1 50,-86.6"/>
+        <text class="arc-text">
+	  <textPath xlink:href="#minor-pentatonic-path"
+                    startOffset="50%" method="align" spacing="auto">
+            Minor Pentatonic
+          </textPath>
+	</text>
+      </a>
+      <!-- Since the blues scale only differs from the minor pentatonic
+           by adding one note, mark it in the same band. -->
+      <a xlink:href="http://en.wikipedia.org/wiki/Blues_scale">
+        <circle cx="0" cy="100" r="0.6em" class="dot"/>
+        <text x="0" y="100" class="dot-text">Blues</text>
+      </a>
+    </g>
+
+    <!-- Circle chord progression -->
+    <!-- This doubles as a reference to the enharmonic chords for the keys. -->
+    <g transform="scale(0.55)" id="chord-progression" class="wide-band">
+
+      <defs>
+	<!-- We use this gradient to emphasize that the V-I-IV chords
+	     are used often (in popular Western music), the vi-ii
+	     chords are used less, and the iii and vii(dim) are used
+	     still less.  The rotation transform determines where the 
+	     darkest point will be; it's currently at the IV chord, but
+	     it's not perceptible and produces a more useful display
+	     than trying to get I to be darkest.
+	-->
+        <linearGradient id="chord-gradient"
+                        gradientUnits="objectBoundingBox"
+                        gradientTransform="rotate(90)">
+          <stop offset="0%" class="chord-arc-dark"/>
+          <stop offset="100%" class="chord-arc-light"/>
+	  <!-- Here's an alternative set of stops that kinda shows
+	       things a bit more clearly, but doesn't really draw
+	       like I expect. -->
+	  <!-- To calculate a stop's offset based on a point on the
+	       circle (where 0deg = 0% and 180deg = 100%), use
+	       (* 50 (- 1 (cos (/ (* 2 pi theta) 360)))) -->
+<!--
+          <stop offset="0%" class="chord-arc-dark"/>      <!- - I - ->
+          <stop offset="6.7%" class="chord-arc-dark"/>    <!- - IV & V - ->
+	  <stop offset="25%" class="chord-arc-medlght"/>  <!- - ii - ->
+	  <stop offset="50%" class="chord-arc-medlght"/>  <!- - vi - ->
+          <stop offset="75%" class="chord-arc-light"/>    <!- - iii - ->
+	  <stop offset="93.3%" class="chord-arc-medlght"/><!- - vii(dim) - ->
+-->
+        </linearGradient>
+      </defs>
+
+      <a xlink:href="http://en.wikipedia.org/wiki/Circle_progression">
+        <path id="chord-progression-arc"
+              d="M-50,-86.6 A100,100 0 1 1 50,86.6" class="arc"/>
+        <!-- Draw a polygon as an arrowhead.  This is to indicate that
+             the circle progression typically goes by descending
+             fifths (or portions of that circle).  Regarding the
+             rotation: The tangent is at 150.  The arrow is about 30
+             arc-degrees long, with the ending tangent of 120.
+             Splitting the difference makes it aesthetically work,
+             since that's where the tip will be on the circle. -->
+        <polygon points="0,-30 0,30 60,0" class="chord-arc-dark"
+                 transform="translate(-50,-86.6) rotate(135)"/>
+	<!-- These tspans are so that the code can update the chord
+	     names when the mode changes; see the Javascript method
+	     "spinToMode" for details. -->
+        <g class="chord-text">
+          <text x="0"    y="-100" ><tspan class="roman" circle:basevalue="1" circle:downcase="0">I  </tspan> </text>
+          <text x="-50"  y="-86.6"><tspan class="roman" circle:basevalue="4" circle:downcase="0">IV </tspan> </text>
+          <text x="50"   y="86.6" ><tspan class="roman" circle:basevalue="7" circle:downcase="1">vii</tspan>°</text>
+          <text x="86.6" y="50"   ><tspan class="roman" circle:basevalue="3" circle:downcase="1">iii</tspan> </text>
+          <text x="100"  y="0"    ><tspan class="roman" circle:basevalue="6" circle:downcase="1">vi </tspan> </text>
+          <text x="86.6" y="-50"  ><tspan class="roman" circle:basevalue="2" circle:downcase="1">ii </tspan> </text>
+          <text x="50"   y="-86.6"><tspan class="roman" circle:basevalue="5" circle:downcase="0">V  </tspan> </text>
+        </g>
+      </a>
+    </g>
+
+    <!-- Modes -->
+    <!-- This band also doubles to indicate which notes are in-key
+	 for the current tonic and mode.  FIXME That isn't clearly
+	 indicated on the display.  Somebody who expects such a band
+	 can easily look at the display when it starts up and see
+	 that this band stretches along notes in C major, but if
+	 you're not expecting it, then you won't have that information.
+	 I should make a help screen or something. -->
+    <g transform="scale(1.5)" id="modes" class="narrow-band">
+      <a xlink:href="http://en.wikipedia.org/wiki/Musical_mode">
+	<!-- The svg:a only covers the path and not the text, since
+	     otherwise it can interfere with the onclick
+	     functionality.  Note that to actually trigger the link,
+	     you have to click on a part of the band that's not 
+	     text, but the cursor should make that clear. -->
+	<path id="modes-path" class="arc"
+	      d="M-50,-86.6 A100,100 0 0 1 50,86.6"/>
+      </a>
+
+      <!-- These are each in separate text elements because the
+           hotspots for the onclick (at least, in Safari's rendering)
+           are partially determined by the bounding box of the whole
+           text element.  So, if these are all in one big text
+           element, then clicks in other places (like, most of the major
+	   pentatonic band) will change modes. -->
+      <text class="arc-text mode-text">
+        <textPath class="first-mode mode-0" xlink:href="#modes-path"
+                  startOffset="0%" method="align" spacing="auto"
+                  onclick="spinToMode(30, 4)">
+	  Lydian
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-sup" xlink:href="#modes-path"
+                  startOffset="16.7%" method="align" spacing="auto"
+                  onclick="spinToMode(0, 1)">
+          Ionian
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-sub" xlink:href="#modes-path"
+                  startOffset="16.7%" method="align" spacing="auto"
+                  onclick="spinToMode(0, 1)">
+          (major)
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-0" xlink:href="#modes-path"
+                  startOffset="33.3%" method="align" spacing="auto"
+                  onclick="spinToMode(-30, 5)">
+          Mixolydian
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-1" xlink:href="#modes-path"
+                  startOffset="50.0%" method="align" spacing="auto"
+                  onclick="spinToMode(-60, 2)">
+          Dorian
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-sup" xlink:href="#modes-path"
+                  startOffset="66.7%" method="align" spacing="auto"
+                  onclick="spinToMode(-90, 6)">
+          Aeolian
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-sub" xlink:href="#modes-path"
+                  startOffset="66.7%" method="align" spacing="auto"
+                  onclick="spinToMode(-90, 6)">
+          (natural minor)
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-1" xlink:href="#modes-path"
+                  startOffset="83.3%" method="align" spacing="auto"
+                  onclick="spinToMode(-120, 3)">
+          Phrygian
+        </textPath>
+      </text>
+      <text class="arc-text mode-text">
+        <textPath class="mode-0 last-mode" xlink:href="#modes-path"
+                  startOffset="99%" method="align" spacing="auto"
+                  onclick="spinToMode(-150, 7)">
+          Locrian
+        </textPath>
+      </text>
+    </g>
+
+  </g>
+
+  <!-- The actual circle of fifths itself. -->
+  <g id="key-circle">
+
+    <circle cx="0" cy="0" r="100" class="circle-background"/>
+    <rect x="-1em" y="-0.6em" width="1.9em" height="1.1em" 
+          rx="0.3em" ry="0.3em" id="key-marker"
+          transform="translate(0 -100)"/>
+    <g class="circle-text" id="circle-text">
+      <text id="noteC"  x="0"     y="-100" >C<tspan class="sf"> </tspan></text>
+      <text id="noteG"  x="50"    y="-86.6">G<tspan class="sf"> </tspan></text>
+      <text id="noteD"  x="86.6"  y="-50"  >D<tspan class="sf"> </tspan></text>
+      <text id="noteA"  x="100"   y="0"    >A<tspan class="sf"> </tspan></text>
+      <text id="noteE"  x="86.6"  y="50"   >E<tspan class="sf"> </tspan></text>
+      <text id="noteB"  x="50"    y="86.6" >B<tspan class="sf"> </tspan></text>
+      <text id="noteFs" x="0"     y="100"  >F<tspan class="sf">♯</tspan></text>
+      <text id="noteCs" x="-50"   y="86.6" >C<tspan class="sf">♯</tspan></text>
+      <text id="noteAb" x="-86.6" y="50"   >A<tspan class="sf">♭</tspan></text>
+      <text id="noteEb" x="-100"  y="0"    >E<tspan class="sf">♭</tspan></text>
+      <text id="noteBb" x="-86.6" y="-50"  >B<tspan class="sf">♭</tspan></text>
+      <text id="noteF"  x="-50"   y="-86.6">F<tspan class="sf"> </tspan></text>
+    </g>
+    <!-- These placeholders are here because spinToKey needs an
+         absolute amount to spin the circle in order to generate a
+         values list for the animation element.  So these placeholders
+         stay in place while the circle spin.  If it weren't for the
+         animation spline, we'd be able to use a "by" attribute and
+         have these onclicks be on the note texts. -->
+    <g class="circle-text">
+      <defs>
+	<!-- I wish there were a way to compute the bounding box of
+	     text within SVG.  As it is, I use two em quads to get the
+	     right space.  Using "Select All" on a newly-loaded page
+	     will let you see where they are. -->
+        <text id="posNote" class="circle-text">&#x2003;&#x2003;</text>
+      </defs>
+      <use xlink:href="#posNote" x="0"     y="-100"  onclick="spinToKey( 360)"/>
+      <use xlink:href="#posNote" x="50"    y="-86.6" onclick="spinToKey( -30)"/>
+      <use xlink:href="#posNote" x="86.6"  y="-50"   onclick="spinToKey( -60)"/>
+      <use xlink:href="#posNote" x="100"   y="0"     onclick="spinToKey( -90)"/>
+      <use xlink:href="#posNote" x="86.6"  y="50"    onclick="spinToKey(-120)"/>
+      <use xlink:href="#posNote" x="50"    y="86.6"  onclick="spinToKey(-150)"/>
+      <use xlink:href="#posNote" x="0"     y="100"   onclick="spinToKey(-180)"/>
+      <use xlink:href="#posNote" x="-50"   y="86.6"  onclick="spinToKey( 150)"/>
+      <use xlink:href="#posNote" x="-86.6" y="50"    onclick="spinToKey( 120)"/>
+      <use xlink:href="#posNote" x="-100"  y="0"     onclick="spinToKey(  90)"/>
+      <use xlink:href="#posNote" x="-86.6" y="-50"   onclick="spinToKey(  60)"/>
+      <use xlink:href="#posNote" x="-50"   y="-86.6" onclick="spinToKey(  30)"/>
+    </g>
+
+    <g>
+      <!-- This transform will be copied and modified to make the
+           spinTo* effects.  The copies will stay in this "g" just to
+           keep the document tidy. -->
+      <animateTransform id="spinTemplate"
+                        attributeName="transform" attributeType="XML"
+                        type="rotate"
+                        dur="1s" fill="freeze"
+                        calcMode="spline" keySplines=".5 0 .5 1"
+                        accumulate="sum" additive="sum" />
+    </g>
+  </g>
+
+  <!-- FIXME This help text is currently invisible (off the bottom of
+       the screen)! -->
+  <text id="directions" x="0" y="195">
+    <tspan x="0" dy="-1em">Please click on the <tspan class="key-directions">tonic</tspan> and</tspan><tspan x="0" dy="1em"><tspan class="mode-directions">mode</tspan> of your choice.</tspan>
+    <!-- Dim this text once the user starts clicking -->
+    <animate attributeType="CSS" attributeName="opacity" 
+             from="1" to="0" dur="1s" fill="freeze"
+	     begin="svg.click" restart="never" />
+  </text>
+
+</svg>
